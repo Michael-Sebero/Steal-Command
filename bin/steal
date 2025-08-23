@@ -33,7 +33,6 @@ for arg in "$@"; do
             echo "4K video detected. Downloading 1440p quality."
             format="bestvideo[height<=1440]+bestaudio/best[height<=1440]"
         else
-            echo "Downloading highest quality available."
             format="bestvideo+bestaudio/best"
         fi
         
