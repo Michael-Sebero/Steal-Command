@@ -17,4 +17,4 @@ steal [ URL1 ] [ URL2 ]
 
 . Through the root terminal enter the name of your file manager.
 
-. Place the Steal command in your [ /bin ] folder.
+. Place the `steal` command in your [ /bin ] folder.
