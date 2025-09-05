@@ -59,13 +59,48 @@ done
 
 # Install/update packages via paru (if any packages were collected)
 if [ ${#paru_packages[@]} -gt 0 ]; then
-    paru -S "${paru_packages[@]}" || { 
-        flatpak_packages+=("${paru_packages[@]}")
-    }
+    echo -e "\033[1mInstalling packages with Paru\033[0m"
+    
+    # Create a temporary file to capture stderr for error analysis
+    temp_error_file=$(mktemp)
+    
+    # Run paru and capture stderr while preserving interactivity
+    paru -S "${paru_packages[@]}" 2> >(tee "$temp_error_file" >&2)
+    paru_exit_code=$?
+    
+    # Check if paru failed
+    if [ $paru_exit_code -ne 0 ]; then
+        # Read the error output to determine failure type
+        error_content=$(cat "$temp_error_file")
+        
+        # Check for genuine errors that warrant database sync
+        if echo "$error_content" | grep -qi "failed to retrieve\|connection\|timeout\|network\|mirror\|database\|404\|could not resolve\|temporary failure\|download.*failed"; then
+            echo "Detected network/database issue. Attempting database sync and retry..."
+            if paru -Syyu; then
+                echo "Database sync successful. Retrying package installation..."
+                paru -S "${paru_packages[@]}"
+                if [ $? -ne 0 ]; then
+                    echo ""
+                    flatpak_packages+=("${paru_packages[@]}")
+                fi
+            else
+                echo ""
+                flatpak_packages+=("${paru_packages[@]}")
+            fi
+        else
+            # Assume user cancellation or package not found - go straight to flatpak
+            echo ""
+            flatpak_packages+=("${paru_packages[@]}")
+        fi
+    fi
+    
+    # Clean up temporary file
+    rm -f "$temp_error_file"
 fi
 
 # Install packages via flatpak (if any packages were collected)
 if [ ${#flatpak_packages[@]} -gt 0 ]; then
+    echo -e "\033[1mInstalling packages with Flatpak\033[0m"
     for package in "${flatpak_packages[@]}"; do
         flatpak install -y "$package"
     done
