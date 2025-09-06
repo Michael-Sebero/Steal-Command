@@ -1,0 +1,15 @@
+#!/bin/bash
+
+steal-latest() {
+    pkg="$1"
+    repo_pkg=$(pacman -Sl "$pkg" | awk '{print $1 "/" $2}' | while read fullpkg; do
+        ver=$(pacman -Si "$fullpkg" 2>/dev/null | awk '/^Version/{print $3}')
+        echo "$fullpkg $ver"
+    done | sort -V -k2 | tail -n1 | awk '{print $1}')
+    
+    if [[ -n "$repo_pkg" ]]; then
+        paru -S --needed "$repo_pkg"
+    else
+        echo "Package not found in any repo"
+    fi
+}
