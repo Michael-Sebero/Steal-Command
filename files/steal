@@ -64,8 +64,8 @@ if [ ${#paru_packages[@]} -gt 0 ]; then
     # Create a temporary file to capture stderr for error analysis
     temp_error_file=$(mktemp)
     
-    # Run paru with --noconfirm and --needed flags to skip confirmations and reviews
-    paru -S --noconfirm --needed "${paru_packages[@]}" 2> >(tee "$temp_error_file" >&2)
+    # Run paru with and --needed flags to skip confirmations and reviews
+    paru -S --needed "${paru_packages[@]}" 2> >(tee "$temp_error_file" >&2)
     paru_exit_code=$?
     
     # Check if paru failed
