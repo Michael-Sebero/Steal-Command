@@ -76,9 +76,9 @@ if [ ${#paru_packages[@]} -gt 0 ]; then
         # Check for genuine errors that warrant database sync
         if echo "$error_content" | grep -qi "failed to retrieve\|connection\|timeout\|network\|mirror\|database\|404\|could not resolve\|temporary failure\|download.*failed"; then
             echo "Detected network/database issue. Attempting database sync and retry..."
-            if paru -Syyu --noconfirm; then
+            if paru -Syyu; then
                 echo "Database sync successful. Retrying package installation..."
-                paru -S --noconfirm --needed "${paru_packages[@]}"
+                paru -S --skipreview --needed "${paru_packages[@]}"
                 if [ $? -ne 0 ]; then
                     echo ""
                     flatpak_packages+=("${paru_packages[@]}")
