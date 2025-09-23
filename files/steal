@@ -41,9 +41,15 @@ for arg in "$@"; do
         
         # Check the exit status of yt-dlp
         if [ $? -ne 0 ]; then
-            echo "Failed to download from $arg. Skipping..."
+            echo "yt-dlp failed. Attempting fallback with gallery-dl..."
+            gallery-dl -d "$downloads_folder" "$arg"
+            if [ $? -ne 0 ]; then
+                echo "Failed to download from $arg with both yt-dlp and gallery-dl. Skipping..."
+            else
+                echo "Download completed for $arg via gallery-dl."
+            fi
         else
-            echo "Download completed for $arg."
+            echo "Download completed for $arg via yt-dlp."
         fi
     else
         # Add package to appropriate list (either paru or flatpak)

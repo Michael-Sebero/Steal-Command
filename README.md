@@ -13,6 +13,8 @@ steal [ URL1 ] [ URL2 ]
 
 . YT-DLP
 
+. Gallery-DL
+
 ## How to Install
 . Place `steal` in `/bin`
 
