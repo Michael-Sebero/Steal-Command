@@ -3,7 +3,7 @@
 # Check if any arguments were provided
 if [ $# -eq 0 ]; then
     echo "Usage: $0 ARG1 [ARG2 ARG3 ...]"
-    echo "Example: $0 https://youtube.com/watch?v=example1 package_name"
+    echo "Example: $0 https://youtube.com/watch?v=example1 package_name 1.deb 1.pkg.tar.zst"
     exit 1
 fi
 
@@ -16,9 +16,23 @@ is_url() {
     [[ "$input" =~ ^https?:// ]] && return 0 || return 1
 }
 
+# Function to check if a string is a .deb or .udeb file
+is_deb_file() {
+    local input="$1"
+    [[ "$input" =~ \.(deb|udeb)$ ]] && return 0 || return 1
+}
+
+# Function to check if a string is a .pkg.tar.zst or .pkg.tar.xz file
+is_pkg_file() {
+    local input="$1"
+    [[ "$input" =~ \.pkg\.tar\.(zst|xz)$ ]] && return 0 || return 1
+}
+
 # Initialize empty arrays to hold packages for paru and flatpak
 paru_packages=()
 flatpak_packages=()
+deb_packages=()
+pkg_files=()
 
 # Loop through all arguments
 for arg in "$@"; do
@@ -51,6 +65,12 @@ for arg in "$@"; do
         else
             echo "Download completed for $arg via yt-dlp."
         fi
+    elif is_pkg_file "$arg"; then
+        # Add .pkg.tar.zst or .pkg.tar.xz file to pkg_files array
+        pkg_files+=("$arg")
+    elif is_deb_file "$arg"; then
+        # Add .deb or .udeb file to deb_packages array
+        deb_packages+=("$arg")
     else
         # Add package to appropriate list (either paru or flatpak)
         if [[ "$arg" =~ / ]]; then
@@ -62,6 +82,24 @@ for arg in "$@"; do
         fi
     fi
 done
+
+# Install .pkg.tar.zst files via paru -U (if any files were collected)
+if [ ${#pkg_files[@]} -gt 0 ]; then
+    echo -e "\033[1mInstalling package files with Paru\033[0m"
+    for pkg_file in "${pkg_files[@]}"; do
+        if [ -f "$pkg_file" ]; then
+            echo "Installing $pkg_file..."
+            paru -U --noconfirm "$pkg_file"
+            if [ $? -eq 0 ]; then
+                echo "Successfully installed $pkg_file"
+            else
+                echo "Failed to install $pkg_file"
+            fi
+        else
+            echo "File not found: $pkg_file"
+        fi
+    done
+fi
 
 # Install/update packages via paru (if any packages were collected)
 if [ ${#paru_packages[@]} -gt 0 ]; then
@@ -109,5 +147,108 @@ if [ ${#flatpak_packages[@]} -gt 0 ]; then
     echo -e "\033[1mInstalling packages with Flatpak\033[0m"
     for package in "${flatpak_packages[@]}"; do
         flatpak install -y "$package"
+    done
+fi
+
+# Install .deb packages via debtap (if any packages were collected)
+if [ ${#deb_packages[@]} -gt 0 ]; then
+    echo -e "\033[1mProcessing .deb packages with debtap\033[0m"
+    
+    # Check if debtap database files exist
+    debtap_cache="/var/cache/debtap"
+    pkgfile_cache="/var/cache/pkgfile"
+    
+    # Create directories if they don't exist
+    sudo mkdir -p "$debtap_cache" "$pkgfile_cache"
+    
+    # Check if required database files exist
+    need_update=false
+    if [[ ! $(ls "$pkgfile_cache"/*.files 2>/dev/null) ]] || \
+       [[ ! $(ls "$debtap_cache"/*-packages-files 2>/dev/null) ]] || \
+       [[ ! -e "$debtap_cache/extended-base-packages-list" ]] || \
+       [[ ! -e "$debtap_cache/aur-packages" ]] || \
+       [[ ! -e "$debtap_cache/virtual-packages" ]]; then
+        need_update=true
+    fi
+    
+    if [ "$need_update" = true ]; then
+        echo "Updating debtap database..."
+        sudo debtap -u
+        
+        # If update failed, create minimal database files manually
+        if [ $? -ne 0 ]; then
+            echo "Debtap update failed. Creating minimal database files..."
+            
+            # Create minimal pkgfile database (just touch a .files file)
+            sudo touch "$pkgfile_cache/core.files"
+            
+            # Download and create Debian packages database
+            echo "Downloading Debian package database..."
+            curl -s "http://ftp.debian.org/debian/dists/stable/main/binary-amd64/Packages.gz" 2>/dev/null | gunzip | sudo tee "$debtap_cache/debian-packages-files" > /dev/null
+            
+            # Download and create Ubuntu packages database
+            echo "Downloading Ubuntu package database..."
+            curl -s "http://archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.gz" 2>/dev/null | gunzip | sudo tee "$debtap_cache/ubuntu-packages-files" > /dev/null
+            
+            # Create extended-base-packages-list
+            sudo pacman -Sg base base-devel | awk '{print $2}' | sudo tee "$debtap_cache/extended-base-packages-list" > /dev/null
+            
+            # Create AUR packages list
+            echo "Downloading AUR packages list..."
+            curl -s "https://aur.archlinux.org/packages.gz" 2>/dev/null | gunzip | sudo tee "$debtap_cache/aur-packages" > /dev/null
+            
+            # Create virtual packages list
+            echo "Downloading virtual packages list..."
+            curl -s "https://archlinux.org/groups/x86_64/json/" 2>/dev/null | sudo tee "$debtap_cache/virtual-packages" > /dev/null
+            
+            # If virtual packages failed, create empty file
+            if [ ! -s "$debtap_cache/virtual-packages" ]; then
+                sudo touch "$debtap_cache/virtual-packages"
+            fi
+            
+            echo "Minimal database created. Debtap should now work with reduced accuracy."
+        fi
+    else
+        echo "Debtap database already exists, skipping update..."
+    fi
+    
+    # Convert and install each .deb package
+    for deb_file in "${deb_packages[@]}"; do
+        if [ -f "$deb_file" ]; then
+            echo "Converting $deb_file..."
+            
+            # Create a temporary working directory in home
+            temp_work_dir="$HOME/debtap-work-$(date +%s)"
+            mkdir -p "$temp_work_dir"
+            
+            # Copy deb file to temp directory
+            cp "$deb_file" "$temp_work_dir/"
+            
+            # Change to temp directory
+            cd "$temp_work_dir" || continue
+            
+            # Run debtap conversion
+            deb_basename=$(basename "$deb_file")
+            sudo debtap -q "$deb_basename"
+            
+            # Find the generated package file
+            pkg_file=$(find . -maxdepth 1 -name "*.pkg.tar.zst" -o -name "*.pkg.tar.xz" 2>/dev/null | head -n 1)
+            
+            if [ -n "$pkg_file" ] && [ -f "$pkg_file" ]; then
+                echo "Installing converted package: $pkg_file"
+                sudo pacman -U --noconfirm "$pkg_file"
+                
+                # Clean up temp directory on success
+                cd "$HOME"
+                rm -rf "$temp_work_dir"
+                echo "Successfully installed $deb_file"
+            else
+                echo "Failed to find converted package for $deb_file"
+                cd "$HOME"
+                echo "Temp files kept in: $temp_work_dir"
+            fi
+        else
+            echo "File not found: $deb_file"
+        fi
     done
 fi
