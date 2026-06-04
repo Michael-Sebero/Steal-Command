@@ -4,6 +4,10 @@
 if [ $# -eq 0 ]; then
     echo "Usage: $0 ARG1 [ARG2 ARG3 ...]"
     echo "Example: $0 https://youtube.com/watch?v=example1 package_name 1.deb 1.pkg.tar.zst"
+    echo "         $0 https://youtube.com/watch?v=example1 '/home/user/custom' package_name"
+    echo "         $0 https://youtube.com/watch?v=example1 https://youtube.com/watch?v=example2 /home/user/custom"    
+    
+    echo "         (Provide an absolute path after a URL to set a custom download directory)"
     exit 1
 fi
 
@@ -28,6 +32,12 @@ is_pkg_file() {
     [[ "$input" =~ \.pkg\.tar\.(zst|xz)$ ]] && return 0 || return 1
 }
 
+# Function to check if a string looks like an absolute directory path
+is_dir_path() {
+    local input="$1"
+    [[ "$input" =~ ^/ ]] && return 0 || return 1
+}
+
 # Initialize empty arrays to hold packages for paru and flatpak
 paru_packages=()
 flatpak_packages=()
@@ -35,13 +45,30 @@ deb_packages=()
 pkg_files=()
 
 # Loop through all arguments
-for arg in "$@"; do
+args=("$@")
+i=0
+while [ $i -lt ${#args[@]} ]; do
+    arg="${args[$i]}"
     if is_url "$arg"; then
+        # Check if the next argument is a custom directory path
+        next_arg="${args[$((i+1))]}"
+        if [ -n "$next_arg" ] && is_dir_path "$next_arg"; then
+            dest_folder="$next_arg"
+            i=$((i+2))
+        else
+            dest_folder="$downloads_folder"
+            i=$((i+1))
+        fi
+
+        # Create destination directory if it doesn't exist
+        mkdir -p "$dest_folder"
+
         echo -e "\033[1mDetected URL: $arg\033[0m"
-        
+        echo -e "\033[1mDestination: $dest_folder\033[0m"
+
         # Get video details to check resolution
         video_info=$(yt-dlp --get-format --skip-download "$arg")
-        
+
         # Check for 4K quality (2160p) and select 1440p if detected
         if echo "$video_info" | grep -q "2160p"; then
             echo "4K video detected. Downloading 1440p quality."
@@ -49,14 +76,14 @@ for arg in "$@"; do
         else
             format="bestvideo+bestaudio/best"
         fi
-        
+
         # Download video using yt-dlp with the chosen format
-        yt-dlp -f "$format" -o "$downloads_folder/%(title)s.%(ext)s" "$arg"
-        
+        yt-dlp -f "$format" -o "$dest_folder/%(title)s.%(ext)s" "$arg"
+
         # Check the exit status of yt-dlp
         if [ $? -ne 0 ]; then
             echo "yt-dlp failed. Attempting fallback with gallery-dl..."
-            gallery-dl -d "$downloads_folder" "$arg"
+            gallery-dl -d "$dest_folder" "$arg"
             if [ $? -ne 0 ]; then
                 echo "Failed to download from $arg with both yt-dlp and gallery-dl. Skipping..."
             else
@@ -68,18 +95,21 @@ for arg in "$@"; do
     elif is_pkg_file "$arg"; then
         # Add .pkg.tar.zst or .pkg.tar.xz file to pkg_files array
         pkg_files+=("$arg")
+        i=$((i+1))
     elif is_deb_file "$arg"; then
         # Add .deb or .udeb file to deb_packages array
         deb_packages+=("$arg")
+        i=$((i+1))
     else
         # Add package to appropriate list (either paru or flatpak)
         if [[ "$arg" =~ / ]]; then
-            # If the argument contains a slash, assume it's a flatpak package (e.g., "flatpak install com.example.app")
+            # If the argument contains a slash, assume it's a flatpak package
             flatpak_packages+=("$arg")
         else
             # Otherwise, treat it as a package for paru
             paru_packages+=("$arg")
         fi
+        i=$((i+1))
     fi
 done
 
