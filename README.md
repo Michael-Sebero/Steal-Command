@@ -5,6 +5,9 @@ Steal works by cycling through 2 install commands until it finds the package you
 steal [ PACKAGE1 ] [ PACKAGE2 ]
 
 steal [ URL1 ] [ URL2 ]
+
+steal [ URL1 ] [ URL2 ] /home/you/custom
+
 ```
 ## Requirements 
 . Paru
